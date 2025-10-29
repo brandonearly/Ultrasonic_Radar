@@ -3,6 +3,8 @@
 %%motor
 %%Date of Creation: 10-26-2025
 
+%%Name: Brandon Early
+
 %clear variables, command windown, etc.
 clear %%clears workspace
 clc %%clears command window
@@ -19,7 +21,7 @@ timeStart = tic;
 
 %setting up the 'radar' plot    
 figure('Visible', 'on', 'WindowStyle', 'normal');
-graph = polaraxes;
+graph = polaraxes; %polar plot, this means no x/y axes just r and theta
 rlim([0 1]); %capping the measurements at 1 meter, can be expanded but idk how good this ultrasonic sensor is
 thetalim([0 180]); %capping the angles at 180 for the servo
 graph.ThetaZeroLocation = 'right'; %preference
@@ -33,15 +35,17 @@ graph.ThetaColor = [0 1 0];
 hold on;
 
 %rest of the housekeeping
-pointsFar = polarplot(graph, 0, 0, 'g.', 'MarkerSize', 10);
+pointsFar = polarplot(graph, 0, 0, 'g.', 'MarkerSize', 10); %plotting them seperately so that I can change the color of the points easily
 pointsClose = polarplot(graph, 0, 0, 'r.', 'MarkerSize', 10);
-count = 0;
-last_angle_count = -Inf;
+
+count = 0; %our estimated people/objects in view variable
+last_angle_count = -Inf; %the 30 degree buffer for new counts 
+
 scan = polarplot(graph, 0, 0, 'Color', [0 1 0], 'LineWidth', 2); % sweeping line visual
 title('Ultrasonic Radar');
 hold on;
 
-x = 1;
+x = 1; %for one full 180 degree sweep both ccw and then back cw, remove and add while(true) for a non-stopping version
 
 while(x > 0)
 
@@ -49,8 +53,8 @@ while(x > 0)
     for(angle = 0:3:180)
 
         %moving the servo
-        writePosition(s, angle / 180);  %servo position is range of 0–1
-        pause(0.05); %for smoother movement
+        writePosition(s, angle / 180);  %servo position input is range of 0–1
+        pause(0.05); %for smoother movement/no race condition scenarios with the sensors measurments and my vectors
         
         %take distance measurement
         dist = readDistance(u);
@@ -63,17 +67,22 @@ while(x > 0)
             a.writeDigitalPin("D12", 0);
         end
 
-        %appending measurements to the data collection arrays
+        %appending measurements to the data collection arrays, could have
+        %the size of these preallocated to save computation time but I want
+        %to leave it to allow for the while(true) implementation to work. 
         angles = [angles; deg2rad(angle)];
         distances = [distances; dist];
         times = [times; toc(timeStart)];
         
         %check recency of measurements to avoid plot clutter after a while
-        %removed the clutter and added single loop instead of whiletrue
-        % VALUES ARE STILL IN ARRAY
+        % VALUES ARE STILL IN ARRAY EVEN ONCE GONE FROM PLOT
+        %The tic/toc part of this variable is only relevant for the
+        %while(true) variation, would also have to add: '-times) <= 5' or
+        %whatever the desired time threshold is
         recent = (toc(timeStart));
 
-        %check distance measurement to see if within 'close' threshold
+        %check distance measurement to see if within 'close' threshold for
+        %plot coloring
         %(arbitrary but im setting baseline at .25 meters)
         close = recent & (distances < .25);
         far = recent & (distances >= .25);
@@ -82,50 +91,40 @@ while(x > 0)
         set(pointsFar, 'ThetaData', angles(far), 'RData', distances(far));
         set(pointsClose, 'ThetaData', angles(close), 'RData', distances(close));
         set(scan, 'ThetaData', [deg2rad(angle), deg2rad(angle)], 'RData', [0 1]); %updating the radar line, polarplot expects 2d vectors
-        drawnow;
+        drawnow; %this allows for live updating rather than waiting for the program to run then displaying the plot
     end
 
-    % Back the other way
+    % Back the other way, all of this code is essentially identical to
+    % above
     for(angle = 180:-3:0)
 
-        %moving the servo
         writePosition(s,angle/180);
-        pause(0.05); %for smoother movement
+        pause(0.05);
 
-        %take distance measurement
         dist = readDistance(u);
         dist = min(dist, 1);
 
-        %if distance is within threshold, turn on the LED/Buzzer
         if(dist < .25)
             a.writeDigitalPin("D12", 1);
         else
             a.writeDigitalPin("D12", 0);
         end
 
-        %%appending measurements to the data collection arrays
         angles = [angles; deg2rad(angle)];
         distances = [distances;dist];
         times = [times; toc(timeStart)];
         
-        %check recency of measurements to avoid plot clutter after a while
-        %removed the clutter and added single loop instead of whiletrue
-        %VALUES ARE STILL IN ARRAY
         recent = (toc(timeStart));
 
-        %check distance measurement to see if within 'close' threshold
-        %(arbitrary but im setting baseline at .25 meters)
         close = recent & (distances < .25);
         far = recent & (distances >= .25);
     
-        %plotting data
         set(pointsFar, 'ThetaData', angles(far), 'RData', distances(far));
         set(pointsClose, 'ThetaData', angles(close), 'RData', distances(close));
-        set(scan, 'ThetaData', [deg2rad(angle), deg2rad(angle)], 'RData', [0 1]); %updating radar line, polarplot expects 2d vectors
+        set(scan, 'ThetaData', [deg2rad(angle), deg2rad(angle)], 'RData', [0 1]);
         drawnow;
- 
     end
-    x = x -1;
+    x = x -1; %for the one loop variation, insures no infinite loop/runtime errors
 end
 
 % Calculate and display average distance and median distance
@@ -144,3 +143,6 @@ end
 
 count = count / 2; %%because we 'sweep' back the other direction, it will almost always count the same object twice
 fprintf("Estimated Number of People in the Area: %.0f ", count);
+
+%just to turn off the buzzer cause its annoying if it runs forever
+writeDigitalPin(a, "D12", 0);
